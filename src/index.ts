@@ -15,7 +15,9 @@ const app = new Application({
 //create container for game elements
 const conty: Container = new Container();
 app.stage.addChild(conty);
-
+//create wall List
+const walls: GameTile[][] = [];
+const wallWidth: number = 10;
 //create game grid
 const tileSize = 100;
 const gridRowCount = 9;
@@ -40,15 +42,97 @@ for (let i = 0; i < gridRowCount * gridRowCount; i++) {
   conty.addChild(tile);
 
   const gameTile: GameTile = new GameTile(tile, tileRow, tileColumn);
+
   gameTiles[tileColumn][tileRow] = gameTile;
   tile.interactive = false;
-  tile.addEventListener("pointertap", function () {
-    console.log(gameTile, gameTile.tileSprite.getBounds());
-    MovePlayerTo(
-      playerList[currentActivePlayerID],
-      gameTile.tileColumn,
-      gameTile.tileRow
-    );
+  tile.addEventListener("pointertap", function (event) {
+    if (!event.nativeEvent.shiftKey) {
+      MovePlayerTo(
+        playerList[currentActivePlayerID],
+        gameTile.tileColumn,
+        gameTile.tileRow
+      );
+    } else {
+      const pos = gameTile.tileSprite.getGlobalPosition();
+      const mouseX = event.globalX;
+      const mouseY = event.globalY;
+      const distances = [
+        Math.abs(mouseX - pos.x - tileSize / 2),
+        Math.abs(mouseX - (pos.x - tileSize / 2)),
+        Math.abs(mouseY - pos.y - tileSize / 2),
+        Math.abs(mouseY - (pos.y - tileSize / 2)),
+      ];
+
+      const closest = Math.min(...distances);
+      const closestEdgeIndex = distances.indexOf(closest);
+
+      let otherTile: GameTile = new GameTile(Sprite1, -1, -1);
+      let offset: number[] = [];
+
+      //determine corresponding other tile and exit this else statement
+      //if otherTile is undefined
+      switch (closestEdgeIndex) {
+        case 0: {
+          if (gameTile.tileColumn + 1 >= gridRowCount) return;
+          otherTile = gameTiles[gameTile.tileColumn + 1][gameTile.tileRow];
+          offset = [1, 0];
+          break;
+        }
+        case 1: {
+          if (gameTile.tileColumn - 1 < 0) return;
+
+          otherTile = gameTiles[gameTile.tileColumn - 1][gameTile.tileRow];
+          offset = [-1, 0];
+          break;
+        }
+        case 2: {
+          if (gameTile.tileRow + 1 >= gridRowCount) return;
+
+          otherTile = gameTiles[gameTile.tileColumn][gameTile.tileRow + 1];
+          offset = [0, 1];
+          break;
+        }
+        case 3:
+          {
+            if (gameTile.tileRow - 1 < 0) return;
+
+            otherTile = gameTiles[gameTile.tileColumn][gameTile.tileRow - 1];
+            offset = [0, -1];
+            break;
+          }
+
+          console.log("the switch went fucking wrong");
+          break;
+      }
+      // check if wall already exists and if otherTile is truthy
+      if (
+        !walls.includes([gameTile, otherTile]) &&
+        !walls.includes([otherTile, gameTile]) &&
+        Boolean(otherTile)
+      ) {
+        const wall = [gameTile, otherTile];
+        walls.push(wall);
+        ProgressTurn();
+        //if still valid path then draw the wall else remove wall from register
+        // TODO:
+        const wallGraphic: Graphics = new Graphics();
+        wallGraphic.beginFill(0xff0000);
+
+        wallGraphic.drawRect(
+          0,
+          0,
+          offset[0] == 0 ? 100 : wallWidth,
+          offset[1] == 0 ? 100 : wallWidth
+        );
+        wallGraphic.pivot.set(wallGraphic.width / 2, wallGraphic.height / 2);
+        wallGraphic.transform.position.set(
+          gameTile.tileSprite.x + (tileSize / 2) * offset[0],
+          gameTile.tileSprite.y + (tileSize / 2) * offset[1]
+        );
+        wallGraphic.endFill();
+        conty.addChild(wallGraphic);
+      }
+    }
   });
 }
 //set the pivot
@@ -58,7 +142,7 @@ conty.position.set(app.screen.width / 2, 450);
 //draw the pivot
 const pivot: Graphics = new Graphics();
 pivot.beginFill(0xff00ff);
-pivot.drawCircle(conty.pivot.x, conty.pivot.y, 20);
+pivot.drawRect(conty.pivot.x, conty.pivot.y, 20, 20);
 pivot.endFill();
 conty.addChild(pivot);
 
@@ -110,12 +194,16 @@ function MovePlayerTo(player: Player, xPos: number, yPos: number) {
 }
 
 //turn progression
-
+let remainingPlayerActions: number = 2;
 function ProgressTurn() {
-  currentActivePlayerID =
-    playerList.length - 1 > currentActivePlayerID
-      ? currentActivePlayerID + 1
-      : 0;
+  remainingPlayerActions--;
+  if (remainingPlayerActions <= 0) {
+    currentActivePlayerID =
+      playerList.length - 1 > currentActivePlayerID
+        ? currentActivePlayerID + 1
+        : 0;
+    remainingPlayerActions = 2;
+  }
   UpdateGrid();
 }
 
@@ -125,31 +213,45 @@ let elegiblePlayerMovementTiles: GameTile[] = [];
 
 function UpdateGrid() {
   const activePlayer = playerList[currentActivePlayerID];
+  const allPlayerPositions: GameTile[] = [];
+  playerList.forEach((player) => {
+    allPlayerPositions.push(gameTiles[player.x][player.y]);
+  });
+
   elegiblePlayerMovementTiles.forEach((tile) => {
     ResetTile(tile);
   });
   if (Boolean(playerTile)) {
     ResetTile(playerTile);
   }
+  playerTile = gameTiles[activePlayer.x][activePlayer.y];
+
   elegiblePlayerMovementTiles = [];
   function ResetTile(tile: GameTile) {
     tile.tileSprite.tint = 0xffffff;
     tile.tileSprite.interactive = false;
   }
-  elegiblePlayerMovementTiles.concat(
-    CheckSurroundingTilesForMovementElegibility(playerTile)
+
+  elegiblePlayerMovementTiles = CheckSurroundingTilesForMovementElegibility(
+    playerTile,
+    allPlayerPositions
   );
+
   elegiblePlayerMovementTiles.forEach((tile) => {
     tile.tileSprite.tint = 0xfffff;
     tile.tileSprite.interactive = true;
   });
-  playerTile = gameTiles[activePlayer.x][activePlayer.y];
   playerTile.tileSprite.tint = 0x00ff00;
 }
 UpdateGrid();
 
-function CheckSurroundingTilesForMovementElegibility(origin: GameTile) {
-  const validTiles: GameTile[] = [];
+//checks surrounding tiles => Existence and Walls inbeween Tiles
+//excludes blackListedTiles
+function CheckSurroundingTilesForMovementElegibility(
+  origin: GameTile,
+  blackListedTiles: GameTile[] = []
+) {
+  let validTiles: GameTile[] = [];
 
   function IsTileValid(x: number, y: number) {
     if (x < gameTiles.length && y < gameTiles.length && x >= 0 && y >= 0) {
@@ -161,5 +263,10 @@ function CheckSurroundingTilesForMovementElegibility(origin: GameTile) {
   IsTileValid(origin.tileColumn, origin.tileRow + 1);
   IsTileValid(origin.tileColumn, origin.tileRow - 1);
 
+  if (blackListedTiles.length > 0) {
+    validTiles = validTiles.filter((val) => {
+      return !blackListedTiles.includes(val);
+    });
+  }
   return validTiles;
 }
