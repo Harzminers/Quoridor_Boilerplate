@@ -21,10 +21,10 @@ const wallWidth: number = 10;
 //create game grid
 const tileSize = 100;
 const gridRowCount = 9;
-const gameTiles: GameTile[][] = [];
+const gameTileList: GameTile[][] = [];
 
 for (let i = 0; i < gridRowCount; i++) {
-  gameTiles[i] = [];
+  gameTileList[i] = [];
 }
 
 for (let i = 0; i < gridRowCount * gridRowCount; i++) {
@@ -43,7 +43,7 @@ for (let i = 0; i < gridRowCount * gridRowCount; i++) {
 
   const gameTile: GameTile = new GameTile(tile, tileRow, tileColumn);
 
-  gameTiles[tileColumn][tileRow] = gameTile;
+  gameTileList[tileColumn][tileRow] = gameTile;
   tile.interactive = false;
   tile.addEventListener("pointertap", function (event) {
     if (!event.nativeEvent.shiftKey) {
@@ -56,14 +56,16 @@ for (let i = 0; i < gridRowCount * gridRowCount; i++) {
       const pos = gameTile.tileSprite.getGlobalPosition();
       const mouseX = event.globalX;
       const mouseY = event.globalY;
-      const distances = [
+      let distances = [
         Math.abs(mouseX - pos.x - tileSize / 2),
         Math.abs(mouseX - (pos.x - tileSize / 2)),
         Math.abs(mouseY - pos.y - tileSize / 2),
         Math.abs(mouseY - (pos.y - tileSize / 2)),
       ];
 
-      const closest = Math.min(...distances);
+      let sortedDists: number[] = [];
+      sortedDists = sortedDists.concat(distances).sort((a, b) => a - b);
+      const closest = sortedDists[0];
       const closestEdgeIndex = distances.indexOf(closest);
 
       let otherTile: GameTile = new GameTile(Sprite1, -1, -1);
@@ -74,21 +76,21 @@ for (let i = 0; i < gridRowCount * gridRowCount; i++) {
       switch (closestEdgeIndex) {
         case 0: {
           if (gameTile.tileColumn + 1 >= gridRowCount) return;
-          otherTile = gameTiles[gameTile.tileColumn + 1][gameTile.tileRow];
+          otherTile = gameTileList[gameTile.tileColumn + 1][gameTile.tileRow];
           offset = [1, 0];
           break;
         }
         case 1: {
           if (gameTile.tileColumn - 1 < 0) return;
 
-          otherTile = gameTiles[gameTile.tileColumn - 1][gameTile.tileRow];
+          otherTile = gameTileList[gameTile.tileColumn - 1][gameTile.tileRow];
           offset = [-1, 0];
           break;
         }
         case 2: {
           if (gameTile.tileRow + 1 >= gridRowCount) return;
 
-          otherTile = gameTiles[gameTile.tileColumn][gameTile.tileRow + 1];
+          otherTile = gameTileList[gameTile.tileColumn][gameTile.tileRow + 1];
           offset = [0, 1];
           break;
         }
@@ -96,7 +98,7 @@ for (let i = 0; i < gridRowCount * gridRowCount; i++) {
           {
             if (gameTile.tileRow - 1 < 0) return;
 
-            otherTile = gameTiles[gameTile.tileColumn][gameTile.tileRow - 1];
+            otherTile = gameTileList[gameTile.tileColumn][gameTile.tileRow - 1];
             offset = [0, -1];
             break;
           }
@@ -104,33 +106,74 @@ for (let i = 0; i < gridRowCount * gridRowCount; i++) {
           console.log("the switch went fucking wrong");
           break;
       }
+      // determine second wall segment
+      const secondClosest = sortedDists[1];
+      const secondClosestIndex = distances.indexOf(secondClosest);
+      const direction =
+        secondClosestIndex == 1 || secondClosestIndex == 3 ? -1 : 1;
+      const firstWallSegment = [gameTile, otherTile];
+
+      const actualOffset = offset[0] == 0 ? [direction, 0] : [0, direction];
+
+      const column1 = firstWallSegment[0].tileColumn + actualOffset[0];
+      const row1 = firstWallSegment[0].tileRow + actualOffset[1];
+
+      const column2 = firstWallSegment[1].tileColumn + actualOffset[0];
+      const row2 = firstWallSegment[1].tileRow + actualOffset[1];
+
+      if (!TileExists(column1, row1) || !TileExists(column2, row2)) return;
+
+      const tile1: GameTile = gameTileList[column1][row1];
+      const tile2: GameTile = gameTileList[column2][row2];
+
+      function TileExists(column: number, row: number) {
+        return (
+          -1 < column && column < gridRowCount && -1 < row && row < gridRowCount
+        );
+      }
+      let secondHalfOfWall: GameTile[] = [tile1, tile2];
+
       // check if wall already exists and if otherTile is truthy
+
+      function WallDoesntExist(tile1: GameTile, tile2: GameTile) {
+        return walls.every((wall) => {
+          return !(wall.includes(tile1) && wall.includes(tile2));
+        });
+      }
+
       if (
-        !walls.includes([gameTile, otherTile]) &&
-        !walls.includes([otherTile, gameTile]) &&
-        Boolean(otherTile)
+        Boolean(otherTile) &&
+        WallDoesntExist(gameTile, otherTile) &&
+        WallDoesntExist(secondHalfOfWall[0], secondHalfOfWall[1])
       ) {
-        const wall = [gameTile, otherTile];
-        walls.push(wall);
+        const firstHalfOfWall = [gameTile, otherTile];
+        walls.push(firstHalfOfWall);
+        walls.push(secondHalfOfWall);
         ProgressTurn();
         //if still valid path then draw the wall else remove wall from register
         // TODO:
-        const wallGraphic: Graphics = new Graphics();
-        wallGraphic.beginFill(0xff0000);
+        function DrawWall(originTile: GameTile, offset: number[]) {
+          const wallGraphic: Graphics = new Graphics();
+          wallGraphic.beginFill(0xff0000);
 
-        wallGraphic.drawRect(
-          0,
-          0,
-          offset[0] == 0 ? 100 : wallWidth,
-          offset[1] == 0 ? 100 : wallWidth
-        );
-        wallGraphic.pivot.set(wallGraphic.width / 2, wallGraphic.height / 2);
-        wallGraphic.transform.position.set(
-          gameTile.tileSprite.x + (tileSize / 2) * offset[0],
-          gameTile.tileSprite.y + (tileSize / 2) * offset[1]
-        );
-        wallGraphic.endFill();
-        conty.addChild(wallGraphic);
+          wallGraphic.drawRect(
+            0,
+            0,
+            offset[0] == 0 ? 100 : wallWidth,
+            offset[1] == 0 ? 100 : wallWidth
+          );
+          wallGraphic.pivot.set(wallGraphic.width / 2, wallGraphic.height / 2);
+          wallGraphic.transform.position.set(
+            originTile.tileSprite.x + (tileSize / 2) * offset[0],
+            originTile.tileSprite.y + (tileSize / 2) * offset[1]
+          );
+          wallGraphic.endFill();
+          conty.addChild(wallGraphic);
+        }
+        DrawWall(firstHalfOfWall[0], offset);
+        DrawWall(secondHalfOfWall[0], offset);
+      } else {
+        //TODO: make it clear that wall placement was prohibited
       }
     }
   });
@@ -215,7 +258,7 @@ function UpdateGrid() {
   const activePlayer = playerList[currentActivePlayerID];
   const allPlayerPositions: GameTile[] = [];
   playerList.forEach((player) => {
-    allPlayerPositions.push(gameTiles[player.x][player.y]);
+    allPlayerPositions.push(gameTileList[player.x][player.y]);
   });
 
   elegiblePlayerMovementTiles.forEach((tile) => {
@@ -224,7 +267,7 @@ function UpdateGrid() {
   if (Boolean(playerTile)) {
     ResetTile(playerTile);
   }
-  playerTile = gameTiles[activePlayer.x][activePlayer.y];
+  playerTile = gameTileList[activePlayer.x][activePlayer.y];
 
   elegiblePlayerMovementTiles = [];
   function ResetTile(tile: GameTile) {
@@ -254,8 +297,13 @@ function CheckSurroundingTilesForMovementElegibility(
   let validTiles: GameTile[] = [];
 
   function IsTileValid(x: number, y: number) {
-    if (x < gameTiles.length && y < gameTiles.length && x >= 0 && y >= 0) {
-      validTiles.push(gameTiles[x][y]);
+    if (
+      x < gameTileList.length &&
+      y < gameTileList.length &&
+      x >= 0 &&
+      y >= 0
+    ) {
+      validTiles.push(gameTileList[x][y]);
     }
   }
   IsTileValid(origin.tileColumn + 1, origin.tileRow);
